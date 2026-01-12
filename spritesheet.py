@@ -1,16 +1,14 @@
 from PIL import Image
 import numpy as np
 import argparse
+import math
 import sys
 import os
 
-# Terminal color codes
 GREEN = '\033[92m'
 RED = '\033[91m'
 ENDC = '\033[0m'
 
-
-# Custom ArgumentParser
 class Parser(argparse.ArgumentParser):
     def error(self, message):
         sys.stderr.write(f"{RED}Error: {message}{ENDC}\n\n")
@@ -19,7 +17,7 @@ class Parser(argparse.ArgumentParser):
 
 def get_args():
     parser = Parser(
-        description="Generate a single-row spritesheet from an irregular spritesheet image",
+        description="Generate a spritesheet from an irregular spritesheet image",
         epilog="Usage example:\n"
                "  spritesheet input.png output.png",
         formatter_class=argparse.RawTextHelpFormatter
@@ -66,6 +64,22 @@ def flood_fill(mask, visited, start_x, start_y):
     return (minx, miny, maxx + 1, maxy + 1)
 
 
+def sort_boxes(boxes, line_threshold=10):
+    heights = [(b[3] - b[1]) for b in boxes]
+    avg_h = np.median(heights)
+
+    enriched = []
+    for b in boxes:
+        minx, miny, maxx, maxy = b
+        center_y = (miny + maxy) / 2
+        row = round(center_y / avg_h)
+        enriched.append((row, minx, b))
+
+    enriched.sort(key=lambda x: (x[0], x[1]))
+
+    return [b for _, _, b in enriched]
+
+
 def find_sprite_boxes(mask, min_area=50):
     h, w = mask.shape
     visited = np.zeros_like(mask, dtype=bool)
@@ -82,7 +96,8 @@ def find_sprite_boxes(mask, min_area=50):
                     boxes.append(box)
 
     print(f"Found {len(boxes)} sprites")
-    return sorted(boxes, key=lambda b: (b[1], b[0]))
+
+    return sort_boxes(boxes)
 
 
 def extract_frames(image, boxes):
@@ -93,15 +108,27 @@ def build_spritesheet(frames):
     max_w = max(f.width for f in frames)
     max_h = max(f.height for f in frames)
 
-    columns = len(frames)
-    sheet = Image.new("RGBA", (columns * max_w, max_h), (0, 0, 0, 0))
+    n = len(frames)
+
+    cols = math.ceil(math.sqrt(n))
+    rows = math.ceil(n / cols)
+
+    sheet_w = cols * max_w
+    sheet_h = rows * max_h
+
+    sheet = Image.new("RGBA", (sheet_w, sheet_h), (0, 0, 0, 0))
 
     for i, frame in enumerate(frames):
-        x = i * max_w
+        col = i % cols
+        row = i // cols
+
+        x = col * max_w
+        y = row * max_h
+
         offset_x = (max_w - frame.width) // 2
         offset_y = max_h - frame.height
 
-        sheet.paste(frame, (x + offset_x, offset_y))
+        sheet.paste(frame, (x + offset_x, y + offset_y))
 
     return sheet
 
